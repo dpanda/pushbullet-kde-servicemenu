@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Service
+X-KDE-ServiceTypes=KonqPopupMenu/Plugin
+Actions=pushbulletPushFile
+MimeType=application/octet-stream
+X-KDE-AuthorizeAction=shell_access
+
+[Desktop Action pushbulletPushFile]
+Exec=/bin/bash -c "pushbullet-kde %U"
+Icon=pushbullet
+Name=Send with Pushbullet
+Name[it]=Invia con Pushbullet

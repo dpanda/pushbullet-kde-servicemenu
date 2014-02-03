@@ -1,0 +1,86 @@
+ #!/bin/bash
+
+# configuration
+API_URL=https://api.pushbullet.com/api
+CONFIG=${XDG_CONFIG_HOME:-$HOME/.config}/pushbullet-kde
+MAX_FILE_SIZE=$(( 25*1024*1024 )) #25MB
+source $CONFIG
+
+# check if a file has been provided, and if its size is less than 25MB
+if [ $# -lt 1 ];then
+	kdialog --error "You must choose at lest a file to push" 
+	exit 1
+fi
+
+#check size for each file
+files=()
+files_too_big=""
+for file in "$@"; do
+	file_size=`du -b $file | cut -f 1`
+	if [ "$file_size" -gt $MAX_FILE_SIZE ]; then
+		files_too_big="$files_too_big\n$file"
+	else
+		files=( "${files[@]}" "$file" )
+	fi	
+done
+
+# no "small" files: display an error and exit
+if [ "${#files[*]}" -eq "0" ]; then
+	kdialog --error "Sorry, every file you choose is bigger than 25MB and cannot be pushed." 
+	exit 1
+fi
+# some big file: warn that they will not be pushed
+if [ $files_too_big ]; then
+	kdialog --sorry "I am not going to push the following files, since their size is over 25MB:\n$files_too_big"
+fi
+
+# if api key is missing, ask for it  
+if [ "$API_KEY" = "" ];then
+	input_api_key=`kdialog --inputbox "Your API key is missing, please insert it:"`
+	if [ "$input_api_key" = "" ]; then
+		exit 0
+	fi
+	# allow the user to save api key
+	kdialog --yesno "Remember your API key for next pushes?\n\nWarning: your API key will be saved in plain text in $CONFIG"
+	if [ "$?" == 0 ]; then
+		echo "API_KEY=$input_api_key" > $CONFIG
+	fi
+fi
+
+# get user's devices
+output=$(curl -s -w "\nhttpstatus_%{http_code}" $API_URL/devices -u $API_KEY: |  grep -e \"model\" -e \"iden\" -e httpstatus | sed -e 's/\bmodel\b//g' | sed -e 's/\biden\b//g' | sed -e 's/[ ":,]//g' | sed -e 's/\n/ /g' )
+devices=($output)
+
+# check call status
+if [ "${devices[((${#devices[*]}-1))]}" != "httpstatus_200" ]; then
+	kdialog --error "Sorry, there was an error while retrieving your devices.\nCheck your API key or your network connection."
+	exit 1
+fi
+
+# build device menu dialog
+devicemenulist=""
+for (( c=1; c<${#devices[*]}; c=c+2 )); do
+	devicemenulist="$devicemenulist ${devices[$c]} \"${devices[(($c-1))]}\""
+done
+
+device=`kdialog --menu "Choose target device:"  $devicemenulist`
+
+if [ "$device" = "" ];then
+	exit 0
+fi
+
+# push every file and check http status code
+errors=""
+for file in "${files[@]}"; do
+	status=`curl -sL -w "%{http_code}"  "$API_URL/pushes" -u $API_KEY: -F device_iden=$device -F type=file -F file="@$file" -X POST -o /dev/null`
+	if [ "$status" != "200" ]; then
+		errors="$errors\n$file"
+	fi
+done
+
+if [ $errors ]; then
+	kdialog --error "Sorry, some push failed:\n$errors"
+	exit 1
+else
+	kdialog --passivepopup "Push successful! :-)" 5
+fi
